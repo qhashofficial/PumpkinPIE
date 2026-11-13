@@ -1,5 +1,45 @@
 # Changelog
 
+## Unreleased
+
+Protocol version `0`, unchanged. Built against the public Pumpkin 0.2.1+26.3-26.51 API.
+
+### Added
+
+- Adapters: the provider asks PVault and SimpleLang in their own IPC protocols, so
+  `%pvault_balance%`, `%pvault_balance_formatted%`, `%pvault_currency_name%`,
+  `%pvault_currency_plural%`, `%pvault_currency_symbol%` and `%simplelang_lang%` resolve with no
+  change to either plugin. A plugin that registers its namespace takes over from its adapter. See
+  [docs/adapters.md](docs/adapters.md).
+
+Verified on **Pumpkin 0.2.2+26.3-26.60 and 0.2.1+26.3-26.51, Minecraft Java 26.3 (protocol 777)**
+with PVault 1.0.7 and SimpleLang 0.2.2 as published on the Pumpkin Market. A consumer plugin asked
+over IPC, with two clients online as viewers, one set to `en_us` and one to `de_de`. Both plugins
+loaded before the provider. Every row held on both servers.
+
+| Check | Result |
+| :-- | :-- |
+| `/pie expansions` | lists `adapter for PVault` and `adapter for simplelang` with their names |
+| The currency without a viewer | `coin/coins/$`, and `%pvault_balance%` stayed in the text |
+| A new player | `%pvault_balance% %pvault_balance_formatted%` gave `0.00 $0.00` |
+| `/eco give` of `1205.5`, asked again at once | still `0.00`, from the cache |
+| The same after 2 s | `1205.50 $1205.50`, and `%PVault_Balance%` resolved too |
+| The second viewer | his own `0.00` |
+| `get_placeholder_value` | `known: true`, `1205.50` |
+| `%pvault_balance:x%` and `%pvault_nonsense%` | both left in the text and reported unresolved |
+| `get_registered_placeholders` | the six names, with `PVault` and `simplelang` as `source` |
+| `%simplelang_lang%` for both viewers | `en_us` and `de_de`, the languages of their clients |
+| The same after `/lang pt_br` and 5 s | `pt_br` |
+| Another plugin registers `pvault` | its `%pvault_x%` resolved, `%pvault_balance%` no longer did, `/pie expansions` showed the expansion and no PVault adapter |
+| That plugin unregisters | `%pvault_balance%` gave `1205.50` again |
+| Neither plugin installed | `%pvault_balance% %simplelang_lang%` stayed as written, `/pie expansions` and `get_registered_placeholders` listed no adapter |
+
+One line with an uncached `%pvault_balance%` took 80 to 100 µs through the consumer, and 40 to 65 µs
+from the cache. Every run ended on `stop` with no error in the log and no warning from the
+provider. The last row ran on 0.2.2 only.
+
+Still unverified: any other version of either plugin.
+
 ## 0.2.5
 
 Protocol version `0`. Workspace version `0.2.5`. Built against the public

@@ -87,6 +87,9 @@ wrapped:
 
 `description` is empty for contributed names, which have no room for a description on the wire.
 
+A name the provider reads through an [adapter](adapters.md) is listed while that plugin is
+installed, with the plugin's name as `source`.
+
 ### `set_placeholders`
 
 `viewer` is a player **name**, or omitted. A uuid does not resolve — the provider looks players up by

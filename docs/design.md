@@ -87,6 +87,31 @@ no way to release it, so they need a change to
 [the WIT](https://github.com/Pumpkin-MC/Pumpkin/tree/master/crates/pumpkin-plugin-wit), not to this
 plugin.
 
+## Why adapters
+
+Everything outside the built ins is meant to arrive as an expansion, and that still holds. It leaves
+a gap in practice: a plugin whose author already published an IPC protocol for other plugins and
+did not also register with PumpkinPIE. PVault is the example. Its balance is one message away, the
+message is specified, and `%pvault_balance%` still resolved to nothing, because nobody had claimed
+`pvault`.
+
+The fix that keeps the rule untouched is a third plugin that registers `pvault` and asks PVault from
+inside its `on_request`. That is the one thing an expansion is told not to do, it adds a hop to
+every lookup, and it is one more file for a server owner to install per plugin. So the provider
+speaks such a protocol itself, through an [adapter](adapters.md), under three constraints that keep
+this from growing into the long built in list this project avoids:
+
+- **An expansion always wins.** An adapter is only asked for a namespace nobody registered, so the
+  plugin's author can take the namespace over at any time without asking anyone, and the adapter is
+  then dead code to delete.
+- **Only a published protocol.** An adapter is written against a spec or a README, never against a
+  binary. A plugin with no API for other plugins gets no adapter, and its author registers an
+  expansion.
+- **Only reads.** No adapter sends a request that changes anything in the other plugin.
+
+What the built in rule protects is unchanged: the economy plugin still owns the balance. An adapter
+only saves its author a release.
+
 ## Why the callback budget
 
 A resolved line is allowed sixteen expansion callbacks, counted per *distinct* placeholder. This is

@@ -19,6 +19,7 @@ Pick the one you need. Each page stands on its own.
 | --- | --- |
 | **Ask** for placeholders in my plugin | [docs/consuming.md](docs/consuming.md) |
 | **Provide** placeholders to other plugins | [docs/expansions.md](docs/expansions.md) |
+| Use placeholders of **PVault or SimpleLang** | [docs/adapters.md](docs/adapters.md) |
 | Implement a client in **another language** | [docs/protocol.md](docs/protocol.md) |
 | Know **why it works this way** | [docs/design.md](docs/design.md) |
 | **Build, test, contribute** | [CONTRIBUTING.md](CONTRIBUTING.md) |
@@ -35,6 +36,10 @@ your plugin  ->  PumpkinPIE  ->  whichever plugin registered the namespace
 PumpkinPIE is the middleman. It answers the `player`, `server` and `pie` placeholders itself and
 asks the owner of a namespace for anything else, so a tab list, a scoreboard, a ranks plugin and an
 economy plugin can each be written by someone who never met.
+
+A few published plugins answer other plugins over a protocol of their own and never registered a
+namespace. For those the provider asks in the plugin's own protocol, through an
+[adapter](#adapted-plugins).
 
 The short version of the first two, with the parts you fill in yourself marked. Note the table
 order, which is load-bearing:
@@ -184,6 +189,23 @@ for `player_has_permission` always reports `known: false`. That is a limitation 
 of the protocol — the wire format carries an `argument` field, which
 [docs/protocol.md](docs/protocol.md#get_placeholder_value) documents.
 
+## Adapted plugins
+
+These resolve as soon as the plugin is installed next to PumpkinPIE, with no change to it and in
+any load order. Without the plugin they are left in the text as written.
+
+| Placeholder | Example | From |
+| :-- | :-- | :-- |
+| `%pvault_balance%` | `1205.50` | [PVault](https://github.com/vyPal/PVault) |
+| `%pvault_balance_formatted%` | `$1205.50` | PVault |
+| `%pvault_currency_name%` | `coin` | PVault |
+| `%pvault_currency_plural%` | `coins` | PVault |
+| `%pvault_currency_symbol%` | `$` | PVault |
+| `%simplelang_lang%` | `pt_br` | [SimpleLang](https://github.com/Kawwabi/SimpleLang) |
+
+A plugin that registers its namespace itself takes over from its adapter.
+[docs/adapters.md](docs/adapters.md) has the rules, and what it takes to add one.
+
 ## Commands
 
 All commands need the `PumpkinPIE:use` permission, which is granted to **op level 2 and above** by
@@ -198,7 +220,7 @@ operators included.
 | :-- | :-- |
 | `/pie parse <text>` | Resolves `<text>` and prints the result |
 | `/pie` | Prints the usage line and every placeholder |
-| `/pie expansions` | Lists registered expansions and who owns them |
+| `/pie expansions` | Lists registered expansions and who owns them, and the adapters whose plugin is installed |
 
 `/pie parse` reports what it could not resolve as a **red error line** and returns a non-zero
 result, so it doubles as a way to check a config. Tab completion offers `%id%` values, up to 20 at

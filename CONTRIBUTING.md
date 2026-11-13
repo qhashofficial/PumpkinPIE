@@ -37,6 +37,8 @@ Two things worth knowing before you build:
 | `crates/pumpkin-pie-plugin/src/lib.rs` | The provider crate's entry point |
 | `crates/pumpkin-pie-plugin/src/plugin.rs` | The provider's IPC surface and cache |
 | `crates/pumpkin-pie-plugin/src/command.rs` | `/pie`, and the test pinning its permission node |
+| `crates/pumpkin-pie-plugin/src/adapters.rs` | The adapter table, and what an adapter is handed |
+| `crates/pumpkin-pie-plugin/src/adapters/` | One file per adapted plugin: its protocol and its tests |
 | `crates/pumpkin-pie-testexp/src/lib.rs` | An expansion: registers namespaces and answers |
 | `crates/pumpkin-pie-consumer/src/lib.rs` | A consumer: calls the client API and logs what came back |
 
@@ -70,6 +72,10 @@ missing.
   requested. Adding them properly means a change to
   [the WIT](https://github.com/Pumpkin-MC/Pumpkin/tree/master/crates/pumpkin-plugin-wit), which
   would be a contribution to Pumpkin rather than to this repository.
+- **An adapter for a plugin with a published protocol.** If a plugin on the Market answers other
+  plugins over a documented IPC protocol and has no placeholders, the provider can ask it directly.
+  [docs/adapters.md](docs/adapters.md#what-gets-an-adapter) says what qualifies and how to write
+  one.
 - **Client libraries.** The crate is Rust only. A TypeScript, Kotlin, Go or C# client module would
   make the protocol easier to adopt, and the protocol is small enough to fit in a language binding.
   See [docs/protocol.md](docs/protocol.md#implementing-a-client-in-another-language).
