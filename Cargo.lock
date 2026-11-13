@@ -226,6 +226,8 @@ version = "0.2.5"
 dependencies = [
  "pumpkin-pie",
  "pumpkin-plugin-api",
+ "serde",
+ "serde_json",
  "tracing",
 ]
 

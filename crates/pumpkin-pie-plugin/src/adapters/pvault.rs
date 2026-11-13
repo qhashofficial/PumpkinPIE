@@ -249,6 +249,7 @@ mod tests {
             high: 0x0011_2233_4455_6677,
             low: 0x8899_aabb_ccdd_eeff,
         },
+        locale: String::new(),
     };
 
     /// `Response { version: 1.0.7, currency: coin / coins / $ / 2 digits }`,

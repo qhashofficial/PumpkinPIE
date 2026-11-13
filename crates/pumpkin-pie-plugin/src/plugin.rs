@@ -268,6 +268,7 @@ fn resolve_adapted(
 
     let viewer = viewer.map(|player| Viewer {
         uuid: player.get_id(),
+        locale: player.get_locale(),
     });
     let value = (adapter.resolve)(&name, viewer.as_ref(), &|bytes| {
         ask_plugin(adapter.plugin, bytes)

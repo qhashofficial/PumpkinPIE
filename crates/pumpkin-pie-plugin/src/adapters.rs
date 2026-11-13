@@ -18,11 +18,14 @@
 use pumpkin_plugin_api::uuid::Uuid;
 
 mod pvault;
+mod simplelang;
 
 /// The player a value is resolved for.
 pub struct Viewer {
     /// The player's unique id.
     pub uuid: Uuid,
+    /// The language the player's client is set to, such as `en_us`.
+    pub locale: String,
 }
 
 /// Sends one message to the adapter's plugin and returns its reply, or [`None`]
@@ -49,7 +52,7 @@ pub struct Adapter {
 }
 
 /// Every adapter, in the order `/pie` lists them.
-pub static ADAPTERS: &[Adapter] = &[pvault::ADAPTER];
+pub static ADAPTERS: &[Adapter] = &[pvault::ADAPTER, simplelang::ADAPTER];
 
 /// The adapter that answers `id`, and the name to ask it for, lowercased.
 #[must_use]
