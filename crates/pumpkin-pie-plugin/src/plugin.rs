@@ -31,6 +31,8 @@ use pumpkin_plugin_api::{
 };
 use tracing::{info, warn};
 
+use crate::adapters::{self, Adapter, Viewer};
+
 /// Version reported by `ping`.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -208,9 +210,12 @@ fn resolve_one(
         return (builtin.resolve)(&context);
     }
 
-    let expansion = lock(&state().registry).owner_of(id)?.clone();
+    let owner = lock(&state().registry).owner_of(id).cloned();
+    let Some(expansion) = owner else {
+        return resolve_adapted(viewer, viewer_key, id, argument, budget);
+    };
     let key = cache_key(&expansion.source, viewer_key, id, argument);
-    if let Some(cached) = cached(&expansion, &key) {
+    if let Some(cached) = cached(expansion.ttl_ms(), &key) {
         return cached;
     }
 
@@ -227,8 +232,82 @@ fn resolve_one(
         argument,
     )?;
     let value = ask_expansion(&expansion.source, &request);
-    store(&expansion, key, value.clone());
+    store(expansion.ttl_ms(), key, value.clone());
     value
+}
+
+/// Resolves a placeholder nobody registered through the adapter for its
+/// plugin, if there is one.
+///
+/// Only reached when the namespace has no owner, so an expansion always wins
+/// over an adapter. The value is cached under the plugin's name, which is the
+/// key `forget` clears when that plugin registers.
+fn resolve_adapted(
+    viewer: Option<&Player>,
+    viewer_key: &str,
+    id: &str,
+    argument: Option<&str>,
+    budget: &Cell<usize>,
+) -> Option<String> {
+    let (adapter, name) = adapters::find(id)?;
+    // No adapter's placeholder takes an argument, and answering one that carries
+    // an argument it ignores would be answering a different question.
+    if argument.is_some() {
+        return None;
+    }
+    let key = cache_key(adapter.plugin, viewer_key, id, None);
+    if let Some(cached) = cached(adapter.ttl_ms, &key) {
+        return cached;
+    }
+
+    if budget.get() == 0 {
+        warn!("callback budget spent, leaving {id} alone");
+        return None;
+    }
+    budget.set(budget.get() - 1);
+
+    let viewer = viewer.map(|player| Viewer {
+        uuid: player.get_id(),
+    });
+    let value = (adapter.resolve)(&name, viewer.as_ref(), &|bytes| {
+        ask_plugin(adapter.plugin, bytes)
+    });
+    store(adapter.ttl_ms, key, value.clone());
+    value
+}
+
+/// Sends an adapter's request to its plugin.
+///
+/// Silent either way. A plugin that is not installed is the normal case, and
+/// it is asked again whenever the cached miss runs out.
+fn ask_plugin(plugin: &str, bytes: &[u8]) -> Option<Vec<u8>> {
+    pumpkin_plugin_api::ipc::send_ipc_message(plugin, bytes)
+        .ok()?
+        .ok()
+}
+
+/// The adapters that answer right now.
+///
+/// An adapter is live when nothing registered its namespace and its plugin
+/// answers the probe.
+///
+/// This costs one round trip per adapter on every call, which is fine for
+/// `/pie` and for a list a consumer reads once. If a consumer ever polls
+/// `get_registered_placeholders`, remember the answer for a few seconds here.
+fn live_adapters() -> Vec<&'static Adapter> {
+    // Collected first, because the registry lock must not be held across IPC.
+    let unclaimed: Vec<&Adapter> = unclaimed(&lock(&state().registry)).collect();
+    unclaimed
+        .into_iter()
+        .filter(|adapter| (adapter.probe)(&|bytes| ask_plugin(adapter.plugin, bytes)))
+        .collect()
+}
+
+/// The adapters whose namespace no expansion has claimed.
+fn unclaimed(registry: &Registry) -> impl Iterator<Item = &'static Adapter> {
+    adapters::ADAPTERS
+        .iter()
+        .filter(|adapter| registry.get(adapter.namespace).is_none())
 }
 
 fn callback_request(
@@ -251,31 +330,32 @@ fn callback_request(
     })
 }
 
-/// Reads a cached value if it is still inside its expansion's TTL.
-fn cached(expansion: &Expansion, key: &CacheKey) -> Option<Option<String>> {
-    if expansion.ttl_ms() == 0 {
+/// Reads a cached value if it is still inside its source's TTL.
+fn cached(ttl_ms: u64, key: &CacheKey) -> Option<Option<String>> {
+    if ttl_ms == 0 {
         return None;
     }
     cache_get(&mut lock(&state().cache), key, Instant::now())
 }
 
-/// Stores a value if the expansion asked for a TTL.
-fn store(expansion: &Expansion, key: CacheKey, value: Option<String>) {
-    if expansion.ttl_ms() == 0 {
+/// Stores a value if its source asked for a TTL.
+fn store(ttl_ms: u64, key: CacheKey, value: Option<String>) {
+    if ttl_ms == 0 {
         return;
     }
     cache_insert(
         &mut lock(&state().cache),
         key,
         value,
-        Duration::from_millis(expansion.ttl_ms()),
+        Duration::from_millis(ttl_ms),
         Instant::now(),
         MAX_CACHE_ENTRIES,
         MAX_CACHE_BYTES,
     );
 }
 
-/// Every placeholder the provider knows, built in and contributed.
+/// Every placeholder the provider knows: built in, contributed, and read
+/// through an adapter.
 pub fn registered() -> Vec<RegisteredPlaceholder> {
     let mut entries: Vec<RegisteredPlaceholder> = builtins::BUILTINS
         .iter()
@@ -297,14 +377,24 @@ pub fn registered() -> Vec<RegisteredPlaceholder> {
             });
         }
     }
+    for adapter in live_adapters() {
+        for (name, description) in adapter.names {
+            entries.push(RegisteredPlaceholder {
+                id: format!("{}_{}", adapter.namespace, name),
+                description: (*description).to_string(),
+                namespace: adapter.namespace.to_string(),
+                source: adapter.plugin.to_string(),
+            });
+        }
+    }
     entries.sort_by(|left, right| left.id.cmp(&right.id));
     entries.dedup_by(|left, right| left.id == right.id);
     entries
 }
 
-/// One line per registered expansion, for `/pie`.
+/// One line per registered expansion and per live adapter, for `/pie`.
 pub fn expansion_summary() -> Vec<String> {
-    lock(&state().registry)
+    let mut lines: Vec<String> = lock(&state().registry)
         .all()
         .map(|expansion| {
             let names = if expansion.names.is_empty() {
@@ -322,7 +412,17 @@ pub fn expansion_summary() -> Vec<String> {
                 expansion.namespace, expansion.source
             )
         })
-        .collect()
+        .collect();
+    for adapter in live_adapters() {
+        let names: Vec<&str> = adapter.names.iter().map(|(name, _)| *name).collect();
+        lines.push(format!(
+            "%{}%  adapter for {}: {}",
+            adapter.namespace,
+            adapter.plugin,
+            names.join(", ")
+        ));
+    }
+    lines
 }
 
 /// Handles one decoded request.
@@ -702,6 +802,23 @@ mod tests {
         let request = callback_request(expansion, "RANKS_Prefix", None, None).unwrap();
         assert!(
             matches!(request, Request::OnRequest { namespace, name, id, .. } if namespace == "ranks" && name == "prefix" && id == "RANKS_Prefix")
+        );
+    }
+
+    #[test]
+    fn a_registered_namespace_takes_its_adapter_out() {
+        let mut registry = Registry::new();
+        let adapted = adapters::ADAPTERS[0].namespace;
+        assert!(unclaimed(&registry).any(|adapter| adapter.namespace == adapted));
+        registry.add(adapted, "Owner", [], Cache::Never).unwrap();
+        assert!(unclaimed(&registry).all(|adapter| adapter.namespace != adapted));
+        // The same lookup `resolve_one` makes before it considers an adapter.
+        assert_eq!(
+            registry
+                .owner_of(&format!("{adapted}_anything"))
+                .unwrap()
+                .source,
+            "Owner"
         );
     }
 

@@ -4,6 +4,7 @@
 //! directory. The protocol, the token scanner and the client live in
 //! `pumpkin-pie`, which is a plain library with no `init-plugin` export.
 
+mod adapters;
 pub mod command;
 mod plugin;
 
